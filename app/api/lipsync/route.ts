@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server"
-import { Rhubarb } from "rhubarb-lip-sync-wasm"
 
 export async function POST(request: Request) {
   try {
+    const { Rhubarb } = await import("rhubarb-lip-sync-wasm")
     const arrayBuffer = await request.arrayBuffer()
     const pcmBuffer = Buffer.from(arrayBuffer)
     const result = await Rhubarb.getLipSync(pcmBuffer)
