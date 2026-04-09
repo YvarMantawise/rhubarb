@@ -43,7 +43,7 @@ export default function VoiceChat() {
   const [isMicMuted, setIsMicMuted] = useState(true)
   const [avatarReady, setAvatarReady] = useState(false)
 
-  const { playPCMChunk, clearAudioBuffer, dispose: disposePlayer, isPlaying: isSpeaking, jawOpenRef } = usePCMAudioPlayer()
+  const { playPCMChunk, clearAudioBuffer, dispose: disposePlayer, isPlaying: isSpeaking, morphTargetsRef } = usePCMAudioPlayer()
 
   // Satisfaction modal
   const [showSatisfactionModal, setShowSatisfactionModal] = useState(false)
@@ -580,7 +580,7 @@ export default function VoiceChat() {
               avatarReady ? "opacity-100" : "opacity-0 pointer-events-none",
             ].join(" ")}
           >
-            <AvatarCanvas jawOpen={jawOpenRef} onReady={() => setAvatarReady(true)} />
+            <AvatarCanvas morphTargets={morphTargetsRef} onReady={() => setAvatarReady(true)} />
           </div>
 
           {/* Placeholder while avatar loads */}

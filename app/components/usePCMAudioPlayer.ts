@@ -1,9 +1,20 @@
 'use client'
 import { useRef, useState, useCallback } from 'react'
 
-// Rhubarb viseme codes → jawOpen value (0–1)
-const VISEME_TO_JAW: Record<string, number> = {
-  X: 0.0, A: 0.2, B: 0.55, C: 0.4, D: 0.45, E: 0.5, F: 0.3, G: 0.35, H: 0.65,
+// Rhubarb viseme codes → ARKit morph target values (0–1)
+// X = silence, A = P/B/M (bilabial closed), B = K/S/T/ch/sh, C = EH/AE (open spread),
+// D = EE (wide smile), E = OH (rounded), F = F/V (teeth on lip),
+// G = TH (tongue between teeth), H = L/N/R (open with tongue)
+const VISEME_TO_MORPHS: Record<string, Record<string, number>> = {
+  X: {},
+  A: { jawOpen: 0.0, mouthClose: 0.8, mouthPress_L: 0.4, mouthPress_R: 0.4, mouthRollUpper: 0.3, mouthRollLower: 0.3 },
+  B: { jawOpen: 0.3, mouthShrugUpper: 0.2, mouthUpperUp_L: 0.2, mouthUpperUp_R: 0.2 },
+  C: { jawOpen: 0.5, mouthSmile_L: 0.2, mouthSmile_R: 0.2, mouthUpperUp_L: 0.3, mouthUpperUp_R: 0.3, mouthLowerDown_L: 0.3, mouthLowerDown_R: 0.3 },
+  D: { jawOpen: 0.15, mouthSmile_L: 0.7, mouthSmile_R: 0.7, mouthDimple_L: 0.3, mouthDimple_R: 0.3, mouthUpperUp_L: 0.2, mouthUpperUp_R: 0.2, mouthStretch_L: 0.2, mouthStretch_R: 0.2 },
+  E: { jawOpen: 0.4, mouthFunnel: 0.6, mouthPucker: 0.3, mouthRollUpper: 0.2, mouthRollLower: 0.2 },
+  F: { jawOpen: 0.1, mouthShrugUpper: 0.5, mouthLowerDown_L: 0.4, mouthLowerDown_R: 0.4, mouthPress_L: 0.2, mouthPress_R: 0.2 },
+  G: { jawOpen: 0.25, tongueOut: 0.7 },
+  H: { jawOpen: 0.45, tongueOut: 0.2, mouthUpperUp_L: 0.1, mouthUpperUp_R: 0.1 },
 }
 
 interface MouthCue { start: number; end: number; value: string }
@@ -23,7 +34,7 @@ export function usePCMAudioPlayer() {
   const visemeTimeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([])
   const rafRef = useRef<number | null>(null)
   const isPlayingInternalRef = useRef(false)
-  const jawOpenRef = useRef(0)
+  const morphTargetsRef = useRef<Record<string, number>>({})
   const [isPlaying, setIsPlaying] = useState(false)
 
   function getCtx(): AudioContext {
@@ -52,7 +63,8 @@ export function usePCMAudioPlayer() {
         const s = (data[i] - 128) / 128
         sum += s * s
       }
-      jawOpenRef.current = Math.min(1, Math.sqrt(sum / data.length) * 4)
+      const amplitude = Math.min(1, Math.sqrt(sum / data.length) * 4)
+      morphTargetsRef.current = { jawOpen: amplitude }
       rafRef.current = requestAnimationFrame(tick)
     }
     rafRef.current = requestAnimationFrame(tick)
@@ -90,7 +102,7 @@ export function usePCMAudioPlayer() {
     if (!item) {
       isPlayingInternalRef.current = false
       stopAmplitudeTracking()
-      jawOpenRef.current = 0
+      morphTargetsRef.current = {}
       setIsPlaying(false)
       return
     }
@@ -120,7 +132,7 @@ export function usePCMAudioPlayer() {
     startAmplitudeTracking()
 
     // When rhubarb returns, seamlessly switch to phoneme visemes
-    mouthCuesPromise.then(cues => {
+    mouthCuesPromise.then((cues: MouthCue[]) => {
       if (!cues.length || currentSourceRef.current !== source) return
       const elapsed = ctx.currentTime - playbackStart
       stopAmplitudeTracking()
@@ -129,7 +141,7 @@ export function usePCMAudioPlayer() {
         const delay = (cue.start - elapsed) * 1000
         if (delay < -100) continue  // already past
         const t = setTimeout(() => {
-          jawOpenRef.current = VISEME_TO_JAW[cue.value] ?? 0
+          morphTargetsRef.current = VISEME_TO_MORPHS[cue.value] ?? {}
         }, Math.max(0, delay))
         visemeTimeoutsRef.current.push(t)
       }
@@ -139,7 +151,7 @@ export function usePCMAudioPlayer() {
       if (currentSourceRef.current === source) currentSourceRef.current = null
       stopAmplitudeTracking()
       clearVisemeTimeouts()
-      jawOpenRef.current = 0
+      morphTargetsRef.current = {}
       playNext()
     }
   }
@@ -147,7 +159,7 @@ export function usePCMAudioPlayer() {
   async function enqueueUtterance() {
     if (utteranceBufferRef.current.length === 0) return
 
-    const totalSamples = utteranceBufferRef.current.reduce((s, c) => s + c.length, 0)
+    const totalSamples = utteranceBufferRef.current.reduce((s: number, c: Int16Array) => s + c.length, 0)
     const combined = new Int16Array(totalSamples)
     let offset = 0
     for (const chunk of utteranceBufferRef.current) {
@@ -186,7 +198,7 @@ export function usePCMAudioPlayer() {
     }
     isPlayingInternalRef.current = false
     stopAmplitudeTracking()
-    jawOpenRef.current = 0
+    morphTargetsRef.current = {}
     setIsPlaying(false)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -197,5 +209,5 @@ export function usePCMAudioPlayer() {
     analyserRef.current = null
   }, [clearAudioBuffer])
 
-  return { playPCMChunk, clearAudioBuffer, dispose, isPlaying, jawOpenRef }
+  return { playPCMChunk, clearAudioBuffer, dispose, isPlaying, morphTargetsRef }
 }

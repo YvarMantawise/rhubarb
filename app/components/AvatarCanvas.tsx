@@ -5,11 +5,13 @@ import { Suspense, useRef, useEffect, Component, ReactNode } from 'react'
 import * as THREE from 'three'
 import { KTX2Loader } from 'three-stdlib'
 
+type MorphTargetsRef = { current: Record<string, number> }
+
 interface AvatarModelProps {
-  jawOpen: React.RefObject<number>
+  morphTargets: MorphTargetsRef
 }
 
-function AvatarModel({ jawOpen }: AvatarModelProps) {
+function AvatarModel({ morphTargets }: AvatarModelProps) {
   const { gl } = useThree()
   const { scene } = useGLTF('/avatar/apex-avatar.glb', false, true, (loader) => {
     const ktx2 = new KTX2Loader().setTranscoderPath('/').detectSupport(gl)
@@ -40,13 +42,17 @@ function AvatarModel({ jawOpen }: AvatarModelProps) {
   useFrame(() => {
     const mesh = morphMeshRef.current
     if (!mesh?.morphTargetDictionary || !mesh?.morphTargetInfluences) return
-    const idx = mesh.morphTargetDictionary['jawOpen']
-    if (idx === undefined) return
-    mesh.morphTargetInfluences[idx] = THREE.MathUtils.lerp(
-      mesh.morphTargetInfluences[idx],
-      jawOpen.current ?? 0,
-      0.25
-    )
+
+    const targets = morphTargets.current ?? {}
+
+    for (const [name, idx] of Object.entries(mesh.morphTargetDictionary)) {
+      const target = targets[name] ?? 0
+      mesh.morphTargetInfluences[idx] = THREE.MathUtils.lerp(
+        mesh.morphTargetInfluences[idx],
+        target,
+        0.25
+      )
+    }
   })
 
   return <primitive object={scene} />
@@ -70,11 +76,11 @@ class AvatarErrorBoundary extends Component<{ children: ReactNode }, { error: st
 }
 
 interface AvatarCanvasProps {
-  jawOpen: React.RefObject<number>
+  morphTargets: MorphTargetsRef
   onReady?: () => void
 }
 
-export function AvatarCanvas({ jawOpen, onReady }: AvatarCanvasProps) {
+export function AvatarCanvas({ morphTargets, onReady }: AvatarCanvasProps) {
   // Signal ready on mount — don't wait for Three.js onCreated which can
   // fire before or after context loss in React StrictMode dev double-mount
   useEffect(() => {
@@ -96,7 +102,7 @@ export function AvatarCanvas({ jawOpen, onReady }: AvatarCanvasProps) {
       <AvatarErrorBoundary>
         <Suspense fallback={<LoadingFallback />}>
           <Environment preset="studio" />
-          <AvatarModel jawOpen={jawOpen} />
+          <AvatarModel morphTargets={morphTargets} />
           <Preload all />
         </Suspense>
       </AvatarErrorBoundary>
