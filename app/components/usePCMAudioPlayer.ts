@@ -131,18 +131,38 @@ export function usePCMAudioPlayer() {
     // Start with amplitude immediately — no waiting
     startAmplitudeTracking()
 
-    // When rhubarb returns, seamlessly switch to phoneme visemes
+    // When rhubarb returns, switch to phoneme visemes (even if audio just finished)
     mouthCuesPromise.then((cues: MouthCue[]) => {
-      if (!cues.length || currentSourceRef.current !== source) return
+      if (!cues.length) return
+      // Only bail if a *different* utterance is actively playing
+      if (currentSourceRef.current !== null && currentSourceRef.current !== source) return
+
       const elapsed = ctx.currentTime - playbackStart
       stopAmplitudeTracking()
       clearVisemeTimeouts()
+
+      // Apply whichever cue should be active right now
+      let activeCue: MouthCue | null = null
+      for (const cue of cues) {
+        if (cue.start <= elapsed + 0.05) activeCue = cue
+      }
+      if (activeCue) morphTargetsRef.current = VISEME_TO_MORPHS[activeCue.value] ?? {}
+
+      // Schedule future cues
+      let hasFutureCues = false
       for (const cue of cues) {
         const delay = (cue.start - elapsed) * 1000
-        if (delay < -100) continue  // already past
+        if (delay <= 50) continue
+        hasFutureCues = true
         const t = setTimeout(() => {
           morphTargetsRef.current = VISEME_TO_MORPHS[cue.value] ?? {}
-        }, Math.max(0, delay))
+        }, delay)
+        visemeTimeoutsRef.current.push(t)
+      }
+
+      // If all cues are past, reset to neutral after a short hold
+      if (!hasFutureCues) {
+        const t = setTimeout(() => { morphTargetsRef.current = {} }, 200)
         visemeTimeoutsRef.current.push(t)
       }
     }).catch(() => {})  // keep amplitude on error
