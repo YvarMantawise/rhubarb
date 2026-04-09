@@ -8,8 +8,7 @@ export async function POST(request: Request) {
     const result = await Rhubarb.getLipSync(pcmBuffer)
     return NextResponse.json({ mouthCues: result.mouthCues })
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown error"
-    console.error("[lipsync] error:", message)
+    console.error("[lipsync] error:", error)
     return NextResponse.json({ mouthCues: [] }, { status: 500 })
   }
 }
