@@ -138,6 +138,7 @@ export function usePCMAudioPlayer() {
       if (currentSourceRef.current !== null && currentSourceRef.current !== source) return
 
       const elapsed = ctx.currentTime - playbackStart
+      console.log(`[lipsync] ${cues.length} cues arrived, elapsed=${elapsed.toFixed(2)}s, audio=${(pcm.length/16000).toFixed(2)}s`)
       stopAmplitudeTracking()
       clearVisemeTimeouts()
 
@@ -155,7 +156,9 @@ export function usePCMAudioPlayer() {
         if (delay <= 50) continue
         hasFutureCues = true
         const t = setTimeout(() => {
-          morphTargetsRef.current = VISEME_TO_MORPHS[cue.value] ?? {}
+          const morphs = VISEME_TO_MORPHS[cue.value] ?? {}
+          console.log('[lipsync] cue', cue.value, morphs)
+          morphTargetsRef.current = morphs
         }, delay)
         visemeTimeoutsRef.current.push(t)
       }
