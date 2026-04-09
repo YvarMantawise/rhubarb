@@ -2,8 +2,9 @@
 
 import { useRouter } from "next/navigation"
 import { useEffect, useState, useCallback, useRef, useMemo } from "react"
-import { generateSimliSessionToken, LogLevel, SimliClient } from "simli-client"
 import { Home, Phone, Plane, DoorOpen, Clock, MapPin, Pointer } from "lucide-react"
+import { usePCMAudioPlayer } from "../components/usePCMAudioPlayer"
+import { AvatarCanvas } from "../components/AvatarCanvas"
 import { Button } from "@/components/ui/button"
 import { voiceChatTranslations } from "@/lib/translations/voice-chat-translations"
 import {
@@ -27,8 +28,6 @@ type ElevenLabsWebSocketEvent =
   | { type: "ping"; ping_event: { event_id: number; ping_ms?: number } }
   | { type: "client_tool_call"; client_tool_call: { tool_call_id: string; tool_name: string; parameters: Record<string, string> } }
 
-let simliClient: SimliClient | null = null
-
 export default function VoiceChat() {
   const router = useRouter()
 
@@ -42,8 +41,9 @@ export default function VoiceChat() {
   const [isLookingUpFlight, setIsLookingUpFlight] = useState(false)
   const [warnings, setWarnings] = useState<FlightWarning[]>([])
   const [isMicMuted, setIsMicMuted] = useState(true)
-  const [isSpeaking, setIsSpeaking] = useState(false)
   const [avatarReady, setAvatarReady] = useState(false)
+
+  const { playPCMChunk, clearAudioBuffer, dispose: disposePlayer, isPlaying: isSpeaking, jawOpenRef } = usePCMAudioPlayer()
 
   // Satisfaction modal
   const [showSatisfactionModal, setShowSatisfactionModal] = useState(false)
@@ -54,16 +54,12 @@ export default function VoiceChat() {
   // Warning countdown
   const [warningCountdown, setWarningCountdown] = useState(25)
 
-  // Simli + WebSocket refs
-  const videoRef = useRef<HTMLVideoElement>(null)
-  const audioRef = useRef<HTMLAudioElement>(null)
+  // WebSocket + mic refs
   const websocketRef = useRef<WebSocket | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const processorRef = useRef<ScriptProcessorNode | null>(null)
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null)
-  const simliKeepaliveRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const lastSimliAudioTimeRef = useRef<number>(0)
 
   // Refs to avoid stale closures
   const warningsRef = useRef<FlightWarning[]>([])
@@ -271,6 +267,10 @@ export default function VoiceChat() {
   // ── ElevenLabs WebSocket ───────────────────────────────────────────────────
 
   const connectToElevenLabs = async (signedUrl: string) => {
+    // Close any stale connection (e.g. from HMR without full unmount)
+    if (websocketRef.current && websocketRef.current.readyState < WebSocket.CLOSING) {
+      websocketRef.current.close()
+    }
     const websocket = new WebSocket(signedUrl)
     websocketRef.current = websocket
 
@@ -282,7 +282,6 @@ export default function VoiceChat() {
           conversation_config_override: { agent: { language: languageRef.current } },
         },
       }))
-      simliClient?.ClearBuffer()
       await setupVoiceStream(streamRef.current!)
       setIsConnected(true)
       setIsCallActive(true)
@@ -298,14 +297,12 @@ export default function VoiceChat() {
       }
 
       if (data.type === "audio") {
-        const audioBytes = base64ToUint8Array(data.audio_event.audio_base_64)
-        lastSimliAudioTimeRef.current = Date.now()
-        simliClient?.sendAudioData(audioBytes)
+        playPCMChunk(base64ToUint8Array(data.audio_event.audio_base_64))
         return
       }
 
       if (data.type === "interruption") {
-        simliClient?.ClearBuffer()
+        clearAudioBuffer()
         return
       }
 
@@ -357,48 +354,11 @@ export default function VoiceChat() {
     }
   }
 
-  // ── Simli init ─────────────────────────────────────────────────────────────
-
-  const initSimli = async (signedUrl: string) => {
-    if (!videoRef.current || !audioRef.current) return
-
-    const sessionToken = (await generateSimliSessionToken({
-      apiKey: process.env.NEXT_PUBLIC_SIMLI_API_KEY as string,
-      config: { faceId: process.env.NEXT_PUBLIC_SIMLI_FACE_ID as string, maxIdleTime: 600, maxSessionLength: 600, handleSilence: true },
-    })).session_token
-
-    simliClient = new SimliClient(sessionToken, videoRef.current, audioRef.current, null, LogLevel.ERROR, "livekit")
-
-    simliClient.on("start", () => {
-      simliClient?.sendAudioData(new Uint8Array(6000).fill(0))
-      lastSimliAudioTimeRef.current = Date.now()
-      setAvatarReady(true)
-
-      // Keepalive: send silence to Simli every 150ms when no real audio is coming in,
-      // to prevent the LiveKit session from timing out during quiet periods.
-      simliKeepaliveRef.current = setInterval(() => {
-        if (simliClient && Date.now() - lastSimliAudioTimeRef.current > 150) {
-          simliClient.sendAudioData(new Uint8Array(6000).fill(0))
-        }
-      }, 150)
-
-      connectToElevenLabs(signedUrl)
-    })
-
-    simliClient.on("speaking", () => setIsSpeaking(true))
-    simliClient.on("silent", () => setIsSpeaking(false))
-
-    simliClient.on("startup_error", () => {
-      setCallStatus("Avatar kon niet starten")
-      setIsCallActive(false)
-    })
-
-    await simliClient.start()
-  }
-
   // ── Start call ─────────────────────────────────────────────────────────────
 
   const handleStartCall = useCallback(async () => {
+    if (isCallActiveRef.current) return  // guard against StrictMode double-invoke
+    isCallActiveRef.current = true
     try {
       setCallStatus(t.connecting)
 
@@ -434,10 +394,11 @@ export default function VoiceChat() {
         throw new Error("No agent ID or signed URL in session response")
       }
 
-      await initSimli(signedUrl)
+      await connectToElevenLabs(signedUrl)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unknown error"
       console.error("Failed to start voice call:", message)
+      isCallActiveRef.current = false
       setCallStatus(t.failedToConnect)
       setIsCallActive(false)
       setIsConnected(false)
@@ -455,25 +416,19 @@ export default function VoiceChat() {
   // ── Stop call ──────────────────────────────────────────────────────────────
 
   const stopCall = useCallback(() => {
-    if (simliKeepaliveRef.current) {
-      clearInterval(simliKeepaliveRef.current)
-      simliKeepaliveRef.current = null
-    }
     websocketRef.current?.close()
     websocketRef.current = null
     stopVoiceStream()
-    simliClient?.stop()
-    simliClient = null
+    disposePlayer()
     setIsCallActive(false)
     setIsConnected(false)
     setAvatarReady(false)
-    setIsSpeaking(false)
     setCallStatus("")
     setMessages([])
     setFlightData(null)
     setWarnings([])
     setIsMicMuted(true)
-  }, [])
+  }, [disposePlayer])
 
   const handleEndCall = useCallback(() => {
     stopCall()
@@ -481,7 +436,7 @@ export default function VoiceChat() {
 
   // ── PTT ────────────────────────────────────────────────────────────────────
 
-  const handlePttStart = useCallback((e: PointerEvent) => {
+  const handlePttStart = useCallback((e: React.PointerEvent) => {
     e.preventDefault()
     if (!isConnected) return
     setIsMicMuted(false)
@@ -583,7 +538,7 @@ export default function VoiceChat() {
       {/* Centre — avatar + controls */}
       <div className="flex flex-col items-center gap-8 flex-1 justify-center w-full max-w-2xl">
 
-        {/* Simli avatar — tap and hold to speak (push-to-talk) */}
+        {/* Avatar — tap and hold to speak (push-to-talk) */}
         <div
           className={["relative flex items-center justify-center w-64 h-64 select-none rounded-full overflow-hidden", isConnected ? "cursor-pointer" : ""].join(" ")}
           style={{ touchAction: "none", WebkitTapHighlightColor: "transparent", WebkitTouchCallout: "none" }}
@@ -591,7 +546,7 @@ export default function VoiceChat() {
           onPointerUp={handlePttEnd}
           onPointerLeave={handlePttEnd}
           onPointerCancel={handlePttEnd}
-          onContextMenu={(e: MouseEvent) => e.preventDefault()}
+          onContextMenu={(e: React.MouseEvent) => e.preventDefault()}
         >
           {/* Expanding rings when AI is speaking */}
           {isSpeaking && (
@@ -611,14 +566,10 @@ export default function VoiceChat() {
             </>
           )}
 
-          {/* Avatar video */}
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
+          {/* 3D Avatar */}
+          <div
             className={[
-              "absolute inset-0 w-full h-full object-cover rounded-full transition-opacity duration-500",
-              "border-2",
+              "absolute inset-0 rounded-full overflow-hidden border-2 transition-[border-color,box-shadow] duration-300",
               isSpeaking
                 ? "border-accent shadow-[0_0_64px_hsl(214_100%_40%/0.30)]"
                 : isMicActive
@@ -626,10 +577,11 @@ export default function VoiceChat() {
                   : isIdle
                     ? "border-primary/40 animate-breathe"
                     : "border-border",
-              avatarReady ? "opacity-100" : "opacity-0",
+              avatarReady ? "opacity-100" : "opacity-0 pointer-events-none",
             ].join(" ")}
-          />
-          <audio ref={audioRef} autoPlay />
+          >
+            <AvatarCanvas jawOpen={jawOpenRef} onReady={() => setAvatarReady(true)} />
+          </div>
 
           {/* Placeholder while avatar loads */}
           {!avatarReady && (

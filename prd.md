@@ -5,7 +5,7 @@
 APEX is an AI-powered voice assistant designed to enhance the travel experience for passengers with reduced mobility at Amsterdam Schiphol Airport. Deployed as a kiosk application on a 13" iPad, APEX combines real-time Schiphol flight data with natural-language voice conversations to provide personalised, multilingual assistance without requiring passengers to type, queue, or navigate complex interfaces.
 
 ### Key Value Proposition
-- **Live Avatar**: A realistic animated face (Simli) speaks and listens — passengers interact with a person-like presence, not a button
+- **Live Avatar**: A realistic 3D animated face speaks and listens — passengers interact with a person-like presence, not a button
 - **Push-to-Talk**: Passengers hold the avatar to speak; releasing triggers the AI response — prevents airport ambient noise from interfering
 - **Instant Flight Context**: Live gate, departure time, and check-in data fetched mid-conversation via the Schiphol API
 - **Proactive Warnings**: Automatically detects and communicates critical situations (bus gates, imminent departures, inbound flights)

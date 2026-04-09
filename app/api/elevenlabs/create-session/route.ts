@@ -6,7 +6,7 @@ export async function POST(request: Request) {
     const { language = "en" } = body
 
     // Single English agent — language is overridden client-side via conversation overrides
-    const agentId = process.env.ELEVENLABS_AGENT_EN
+    const agentId = process.env.ELEVENLABS_AGENT_EN ?? process.env.NEXT_PUBLIC_ELEVENLABS_AGENT_EN
     if (!agentId) {
       return NextResponse.json(
         { success: false, error: "ELEVENLABS_AGENT_EN is not configured" },

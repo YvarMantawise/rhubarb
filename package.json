@@ -13,6 +13,9 @@
     "@radix-ui/react-label": "latest",
     "@radix-ui/react-select": "^2.0.0",
     "@radix-ui/react-slot": "^1.2.3",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.5.0",
+    "@types/three": "^0.183.1",
     "@vercel/analytics": "^1.4.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -20,9 +23,10 @@
     "next": "^15.3.9",
     "react": "^19",
     "react-dom": "^19",
-    "simli-client": "^3.0.1",
+    "rhubarb-lip-sync-wasm": "^0.1.8",
     "tailwind-merge": "^2.5.5",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "three": "^0.183.2"
   },
   "devDependencies": {
     "@types/node": "^22",
